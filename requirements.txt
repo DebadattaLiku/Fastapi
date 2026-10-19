@@ -1,6 +1,8 @@
+
 fastapi
 uvicorn
 google-genai
 python-dotenv
-slowapi[redis]==0.1.10
-redis>=5.0
+slowapi==0.1.10
+redis==3.5.3
+
