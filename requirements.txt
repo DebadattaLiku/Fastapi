@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+google-genai
+python-dotenv
+slowapi[redis]==0.1.10

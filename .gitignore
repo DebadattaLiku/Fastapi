@@ -1,0 +1,5 @@
+.env
+app.log
+__pycache__/
+.pytest_cache/
+.github_old
