@@ -30,7 +30,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL")
 if not GEMINI_MODEL:
     raise ValueError("GEMINI_MODEL is not configured")
 
-client = genai.Client()
+client = genai.Client() if os.getenv("GEMINI_API_KEY") else None
 app = FastAPI()
 redis_url = os.getenv("REDIS_URL")
 limiter = Limiter(
