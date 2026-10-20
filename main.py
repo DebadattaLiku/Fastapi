@@ -9,6 +9,7 @@ import time
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_client import Counter, Histogram, make_asgi_app
 
 class SafeFormatter(logging.Formatter):
     def format(self, record):
@@ -54,7 +55,51 @@ if not GEMINI_MODEL:
     raise ValueError("GEMINI_MODEL is not configured")
 
 client = genai.Client() if os.getenv("GEMINI_API_KEY") else None
+
 app = FastAPI()
+
+REQUEST_COUNT = Counter(
+    "api_requests_total",
+    "Total number of API requests",
+    ["endpoint", "method"]
+)
+
+REQUEST_ERRORS = Counter(
+    "api_request_errors_total",
+    "Total number of HTTP error responses",
+    ["endpoint", "method", "status_code"]
+)
+
+REQUEST_DURATION = Histogram(
+    "api_request_duration_seconds",
+    "Duration of HTTP requests in seconds",
+    ["endpoint", "method"]
+)
+
+@app.middleware("http")
+async def count_requests(request: Request, call_next):
+    endpoint = request.url.path
+    method = request.method
+
+    REQUEST_COUNT.labels(
+        endpoint=request.url.path,
+        method=request.method
+    ).inc()
+    with REQUEST_DURATION.labels(
+        endpoint=endpoint,
+        method=method
+    ).time():
+        response = await call_next(request)
+    if response.status_code >= 400:
+        REQUEST_ERRORS.labels(
+            endpoint=endpoint,
+            method=method,
+            status_code=str(response.status_code)
+        ).inc()
+    return response
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
 redis_url = os.getenv("REDIS_URL")
 limiter = Limiter(
     key_func=get_remote_address,
@@ -108,12 +153,14 @@ def ask(request: Request, question: Question):
     except Exception:
         duration = time.perf_counter() - start_time
         logger.error(
-            "LLM request failed",
+            "LLM request failed after %.2f seconds",
+            duration,
             extra={
                 "event": "llm_request_failure",
-                "endpoint": "/ask"
+                "endpoint": "/ask",
+                "duration_seconds": round(duration, 2)
             }
-    )
+   )
         logger.exception("LLM request failed")
         raise HTTPException(
             status_code=502,
