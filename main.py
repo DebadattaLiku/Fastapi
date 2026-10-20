@@ -9,21 +9,44 @@ import time
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+class SafeFormatter(logging.Formatter):
+    def format(self, record):
+        if not hasattr(record, "event"):
+            record.event = "-"
+        if not hasattr(record, "endpoint"):
+            record.endpoint = "-"
+        if not hasattr(record, "duration_seconds"):
+            record.duration_seconds = "-"    
+        return super().format(record)
+
+
+file_handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=1_000_000,
+    backupCount=3,
+    encoding="utf-8"
+)
+
+console_handler = logging.StreamHandler()
+
+formatter = SafeFormatter(
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s "
+    "| event=%(event)s | endpoint=%(endpoint)s"
+    "| duration_seconds=%(duration_seconds)s"
+)
+
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    handlers=[
-        RotatingFileHandler("app.log",
-                            maxBytes=1_000_000,
-                            backupCount=3, 
-                            encoding="utf-8"
-                            ),
-        logging.StreamHandler()
-    ],
+    handlers=[file_handler, console_handler],
     force=True
 )
 
 logger = logging.getLogger(__name__)
+
 
 load_dotenv()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL")
@@ -64,17 +87,33 @@ def simple_agent(question:str, temperature: float)->str:
 @app.post("/ask")
 @limiter.limit("5/minute")
 def ask(request: Request, question: Question):
-    logger.info("Request received: /ask")
+    logger.info(
+        "Request received",
+        extra={"event": "request_received", "endpoint": "/ask"}
+    )
     start_time = time.perf_counter()
     try:
         answer=simple_agent(question.question, question.temperature)
         duration = time.perf_counter() - start_time
-        logger.info("SUCCESS: Answer generated in %.2f seconds", duration)
+        logger.info(
+            "Answer generated successfully in %.2f seconds", duration,
+            extra={
+                "event": "llm_request_success",
+                "endpoint": "/ask",
+                "duration_seconds": round(duration, 2)
+            }
+    )
         return{"answer":answer}
     
     except Exception:
         duration = time.perf_counter() - start_time
-        logger.error("FAILURE: Request failed after %.2f seconds", duration)
+        logger.error(
+            "LLM request failed",
+            extra={
+                "event": "llm_request_failure",
+                "endpoint": "/ask"
+            }
+    )
         logger.exception("LLM request failed")
         raise HTTPException(
             status_code=502,
