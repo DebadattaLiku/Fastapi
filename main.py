@@ -12,6 +12,96 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from prometheus_client import Counter, Histogram, make_asgi_app
 from google.genai import types
+# from starlette.responses import JSONResponse
+# import json
+
+# class RequestBodyTooLarge(Exception):
+#     pass
+
+
+# class RequestBodyLimitMiddleware:
+#     def __init__(self, app, max_body_size: int = 64 * 1024):
+#         self.app = app
+#         self.max_body_size = max_body_size
+
+#     async def __call__(self, scope, receive, send):
+#         if scope["type"] != "http":
+#             await self.app(scope, receive, send)
+#             return
+
+#         headers = scope.get("headers", [])
+#         lengths = [
+#             value for name, value in headers
+#             if name.lower() == b"content-length"
+#         ]
+
+#         if len(lengths) > 1:
+#             await self.reject(send, 400, "Invalid Content-Length")
+#             return
+
+#         if lengths:
+#             try:
+#                 declared = int(lengths[0])
+#                 if declared < 0:
+#                     raise ValueError
+#             except ValueError:
+#                 await self.reject(send, 400, "Invalid Content-Length")
+#                 return
+
+#             if declared > self.max_body_size:
+#                 await self.reject(send, 413, "Request body too large")
+#                 return
+
+#         received = 0
+#         response_started = False
+#         oversized = False
+
+#         async def limited_receive():
+#             nonlocal received, oversized
+
+#             message = await receive()
+
+#             if message["type"] == "http.request":
+#                 received += len(message.get("body", b""))
+
+#                 if received > self.max_body_size:
+#                     oversized = True
+#                     # Do not raise here: Starlette may convert the
+#                     # exception into a 400 before our handler sees it.
+#                     return {
+#                         "type": "http.disconnect",
+#                     }
+
+#             return message
+
+#         async def tracked_send(message):
+#             nonlocal response_started
+
+#             if message["type"] == "http.response.start":
+#                 response_started = True
+
+#             await send(message)
+
+#         await self.app(scope, limited_receive, tracked_send)
+
+#         if oversized and not response_started:
+#             await self.reject(send, 413, "Request body too large")
+
+#     async def reject(self, send, status_code: int, detail: str):
+#         body = json.dumps({"detail": detail}).encode("utf-8")
+
+#         await send({
+#             "type": "http.response.start",
+#             "status": status_code,
+#             "headers": [
+#                 (b"content-type", b"application/json"),
+#                 (b"content-length", str(len(body)).encode("ascii")),
+#             ],
+#         })
+#         await send({
+#             "type": "http.response.body",
+#             "body": body,
+#         })
 
 class SafeFormatter(logging.Formatter):
     def format(self, record):
@@ -40,11 +130,12 @@ formatter = SafeFormatter(
 )
 
 file_handler.setFormatter(formatter)
+console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 
 logging.basicConfig(
     level=logging.INFO,
-    handlers=[file_handler, console_handler],
+    handlers=[console_handler],
     force=True
 )
 
@@ -74,6 +165,11 @@ client = (
 )
 
 app = FastAPI()
+
+# app.add_middleware(
+#     RequestBodyLimitMiddleware,
+#     max_body_size=64 * 1024,
+# )
 
 API_ACCESS_KEY = os.getenv("API_ACCESS_KEY")
 
@@ -110,6 +206,26 @@ REQUEST_DURATION = Histogram(
     "Duration of HTTP requests in seconds",
     ["endpoint", "method"]
 )
+
+# MAX_BODY_SIZE = 64 * 1024
+# @app.middleware("http")
+# async def limit_request_body(request: Request, call_next):
+#     content_length = request.headers.get("content-length")
+
+#     if content_length:
+#         try:
+#             if int(content_length) > MAX_BODY_SIZE:
+#                 return JSONResponse(
+#                     status_code=413,
+#                     content={"detail": "Request body too large"},
+#                 )
+#         except ValueError:
+#             return JSONResponse(
+#                 status_code=400,
+#                 content={"detail": "Invalid Content-Length"},
+#             )
+
+#     return await call_next(request)
 
 @app.middleware("http")
 async def count_requests(request: Request, call_next):
@@ -196,7 +312,7 @@ def ask(request: Request, question: Question, _: None = Depends(verify_api_key))
                 "duration_seconds": round(duration, 2)
             }
    )
-        logger.exception("LLM request failed")
+        logger.error("LLM request failed; exception details withheld")
         raise HTTPException(
             status_code=502,
             detail="The LLM service failed. Please try again"

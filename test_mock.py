@@ -62,4 +62,35 @@ def test_rate_limit():
     status_codes = [r.status_code for r in responses]
 
     assert status_codes[:5] == [200, 200, 200, 200, 200]
-    assert status_codes[5] == 429    
+    assert status_codes[5] == 429
+
+def test_oversized_request_body():
+    response = client.post(
+        "/ask",
+        json={
+            "question": "A" * (65 * 1024),
+            "temperature": 0.5,
+        },
+    )
+
+    assert response.status_code == 422
+    assert any(
+        error["type"] == "string_too_long"
+        for error in response.json()["detail"]
+    )
+
+# def test_oversized_streamed_request_body():
+#     test_app = TestClient(app)
+
+#     def body_stream():
+#         yield b"A" * (32 * 1024)
+#         yield b"B" * (33 * 1024)
+
+#     response = test_app.post(
+#         "/ask",
+#         content=body_stream(),
+#         headers={"X-API-Key": "test-api-key"},
+#     )
+
+#     assert response.status_code == 413
+#     assert response.json()["detail"] == "Request body too large"
