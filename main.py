@@ -11,6 +11,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from prometheus_client import Counter, Histogram, make_asgi_app
+from google.genai import types
 
 class SafeFormatter(logging.Formatter):
     def format(self, record):
@@ -55,7 +56,22 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL")
 if not GEMINI_MODEL:
     raise ValueError("GEMINI_MODEL is not configured")
 
-client = genai.Client() if os.getenv("GEMINI_API_KEY") else None
+client = (
+    genai.Client(
+        http_options=types.HttpOptions(
+            timeout=30_000,
+            retry_options=types.HttpRetryOptions(
+                attempts=3,
+                initial_delay=1.0,
+                exp_base=2,
+                max_delay=4.0,
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        )
+    )
+    if os.getenv("GEMINI_API_KEY")
+    else None
+)
 
 app = FastAPI()
 
