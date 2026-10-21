@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 from google import genai
-from fastapi import FastAPI, HTTPException, Request
+import secrets
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel, Field
 import logging
 from logging.handlers import RotatingFileHandler
@@ -57,6 +58,24 @@ if not GEMINI_MODEL:
 client = genai.Client() if os.getenv("GEMINI_API_KEY") else None
 
 app = FastAPI()
+
+API_ACCESS_KEY = os.getenv("API_ACCESS_KEY")
+
+if not API_ACCESS_KEY:
+    raise ValueError("API_ACCESS_KEY is not configured")
+
+
+def verify_api_key(
+    x_api_key: str | None = Header(default=None)
+):
+    if (
+        not x_api_key
+        or not secrets.compare_digest(x_api_key, API_ACCESS_KEY)
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key"
+        )
 
 REQUEST_COUNT = Counter(
     "api_requests_total",
@@ -131,7 +150,7 @@ def simple_agent(question:str, temperature: float)->str:
 
 @app.post("/ask")
 @limiter.limit("5/minute")
-def ask(request: Request, question: Question):
+def ask(request: Request, question: Question, _: None = Depends(verify_api_key)):
     logger.info(
         "Request received",
         extra={"event": "request_received", "endpoint": "/ask"}
