@@ -1,9 +1,12 @@
 
+import os
+
+os.environ["API_ACCESS_KEY"] = "test-api-key"
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 from main import app
 
-client = TestClient(app)
+client = TestClient(app,headers={"X-API-Key": "test-api-key"})
 
 
 def test_mocked_llm_response():

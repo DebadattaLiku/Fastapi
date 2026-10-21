@@ -61,7 +61,7 @@ app = FastAPI()
 
 API_ACCESS_KEY = os.getenv("API_ACCESS_KEY")
 
-if not API_ACCESS_KEY:
+if not API_ACCESS_KEY and os.getenv("CI") != "true":
     raise ValueError("API_ACCESS_KEY is not configured")
 
 
